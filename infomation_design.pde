@@ -3,6 +3,7 @@ ArrayList<Ripple> ripples;
 ArrayList<Crack> cracks;
 ArrayList<Particle> particles;
 ArrayList<Flash> flashes;
+ArrayList<float[]> worldPolygons;
 
 int currentYear = 2024;
 boolean loading = false;
@@ -25,7 +26,9 @@ void setup() {
   particles = new ArrayList<Particle>();
   flashes = new ArrayList<Flash>();
   pendingQuakes = new ArrayList<Quake>();
+  worldPolygons = new ArrayList<float[]>();
   textFont(createFont("SansSerif", 14));
+  loadWorldMap();
   fetchYear(currentYear);
 }
 
@@ -116,54 +119,59 @@ void draw() {
   drawUI();
 }
 
-float mx(float lon) { return map(lon, -180, 180, 30, width-30); }
-float my(float lat) { return map(lat, 90, -90, 60, height-40); }
+float gx(float lon) { return map(lon, -180, 180, 30, width-30); }
+float gy(float lat) { return map(lat, 90, -90, 60, height-40); }
 
-void drawWorldGrid() {
-  stroke(30, 30, 40); strokeWeight(0.5);
-  for (float lon=-180;lon<=180;lon+=30) line(mx(lon),60,mx(lon),height-40);
-  for (float lat=-90;lat<=90;lat+=30) line(30,my(lat),width-30,my(lat));
-  stroke(40,40,55); line(30,my(0),width-30,my(0));
-
-  // 簡易世界地図
-  stroke(50, 55, 65); strokeWeight(1); noFill();
-  // 北米
-  beginShape();
-  v(-130,55);v(-125,50);v(-125,40);v(-120,35);v(-115,32);v(-105,30);v(-100,28);
-  v(-95,28);v(-90,30);v(-82,25);v(-80,25);v(-75,35);v(-70,42);v(-65,45);v(-60,47);
-  v(-65,50);v(-70,55);v(-75,60);v(-80,62);v(-90,65);v(-100,68);v(-120,70);v(-140,65);v(-165,62);v(-168,55);
-  endShape();
-  // 南米
-  beginShape();
-  v(-80,10);v(-75,5);v(-70,5);v(-60,0);v(-50,-2);v(-45,-5);v(-38,-8);v(-35,-10);
-  v(-37,-15);v(-40,-22);v(-50,-25);v(-55,-30);v(-60,-35);v(-65,-40);v(-68,-50);v(-70,-55);
-  v(-75,-50);v(-75,-42);v(-72,-35);v(-70,-20);v(-75,-15);v(-78,-5);v(-80,0);v(-80,10);
-  endShape();
-  // ユーラシア
-  beginShape();
-  v(-10,35);v(0,38);v(10,37);v(20,40);v(30,42);v(40,42);v(50,40);v(60,42);
-  v(70,38);v(80,42);v(90,45);v(100,40);v(105,35);v(110,38);v(120,40);v(125,42);
-  v(130,45);v(135,50);v(140,52);v(142,55);v(140,60);v(150,62);v(165,65);v(180,67);
-  v(180,72);v(140,72);v(100,72);v(60,70);v(40,68);v(30,65);v(20,60);v(10,55);
-  v(5,50);v(0,48);v(-5,45);v(-10,42);v(-10,35);
-  endShape();
-  // アフリカ
-  beginShape();
-  v(-15,32);v(-17,20);v(-17,15);v(-10,5);v(-5,5);v(5,0);v(10,2);
-  v(15,-5);v(20,-15);v(25,-25);v(30,-30);v(32,-34);v(28,-34);
-  v(20,-30);v(15,-25);v(10,-10);v(5,0);v(-5,5);v(-10,5);v(-15,10);v(-17,15);v(-15,32);
-  endShape();
-  // オーストラリア
-  beginShape();
-  v(115,-15);v(120,-15);v(130,-13);v(135,-15);v(140,-18);v(145,-20);
-  v(150,-25);v(152,-28);v(150,-33);v(145,-37);v(140,-38);v(135,-35);
-  v(130,-32);v(125,-30);v(120,-28);v(115,-25);v(113,-22);v(115,-15);
-  endShape();
-  // 日本
-  beginShape(); v(130,32);v(132,34);v(135,36);v(138,38);v(140,40);v(141,42);v(140,44);v(142,45); endShape();
+void loadWorldMap() {
+  try {
+    String url = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson";
+    JSONObject json = loadJSONObject(url);
+    JSONArray features = json.getJSONArray("features");
+    for (int i = 0; i < features.size(); i++) {
+      JSONObject geom = features.getJSONObject(i).getJSONObject("geometry");
+      String type = geom.getString("type");
+      if (type.equals("Polygon")) {
+        addRing(geom.getJSONArray("coordinates").getJSONArray(0));
+      } else if (type.equals("MultiPolygon")) {
+        JSONArray polys = geom.getJSONArray("coordinates");
+        for (int j = 0; j < polys.size(); j++) {
+          addRing(polys.getJSONArray(j).getJSONArray(0));
+        }
+      }
+    }
+    println("World map loaded: " + worldPolygons.size() + " polygons");
+  } catch (Exception e) {
+    println("Map load error: " + e.getMessage());
+  }
 }
 
-void v(float lon, float lat) { vertex(mx(lon), my(lat)); }
+void addRing(JSONArray ring) {
+  float[] coords = new float[ring.size() * 2];
+  for (int i = 0; i < ring.size(); i++) {
+    JSONArray p = ring.getJSONArray(i);
+    coords[i*2] = p.getFloat(0);
+    coords[i*2+1] = p.getFloat(1);
+  }
+  worldPolygons.add(coords);
+}
+
+void drawWorldGrid() {
+  // グリッド
+  stroke(30, 30, 40); strokeWeight(0.5);
+  for (float lon=-180; lon<=180; lon+=30) line(gx(lon), 60, gx(lon), height-40);
+  for (float lat=-90; lat<=90; lat+=30) line(30, gy(lat), width-30, gy(lat));
+  stroke(40, 40, 55); line(30, gy(0), width-30, gy(0));
+
+  // 世界地図ポリゴン
+  stroke(50, 58, 70); strokeWeight(0.8); noFill();
+  for (float[] coords : worldPolygons) {
+    beginShape();
+    for (int i = 0; i < coords.length; i += 2) {
+      vertex(gx(coords[i]), gy(coords[i+1]));
+    }
+    endShape(CLOSE);
+  }
+}
 
 void drawUI() {
   // ヘッダー
