@@ -1,0 +1,83 @@
+使用API・データソース一覧
+#	種別	名称	URL	用途
+1	API	USGS Earthquake Catalog API	https://earthquake.usgs.gov/fdsnws/event/1/query	地震データ取得
+2	静的データ	Natural Earth 110m Land GeoJSON	https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_land.geojson	世界地図描画
+
+USGS Earthquake Catalog API — 返却値
+JSONパス	型	値の例	コード内での用途
+features	JSONArray	—	地震イベント配列（最大300件）
+features[i].properties.mag	float	5.2	マグニチュード → 内部値(1-8)に変換、エフェクト強度・色・サイズに使用
+features[i].properties.place	String	"10km S of Tokyo"	発生場所名 → マウスホバー時のツールチップ表示
+features[i].geometry.coordinates[0]	float	139.5	経度(lon) → 画面X座標にマッピング
+features[i].geometry.coordinates[1]	float	35.7	緯度(lat) → 画面Y座標にマッピング
+features[i].geometry.coordinates[2]	float	10.0	深度 — 未使用
+features[i].properties.time	long	1704067200000	タイムスタンプ — 未使用
+metadata	JSONObject	—	メタ情報 — 未使用
+
+USGS Earthquake Catalog API — クエリパラメータ
+パラメータ	値	説明
+format	geojson	レスポンス形式
+starttime	{year}-01-01	取得開始日
+endtime	{year}-12-31	取得終了日
+minmagnitude	4	最低マグニチュード
+orderby	time-asc	時系列昇順
+limit	300	最大取得件数
+
+Natural Earth 110m Land GeoJSON — データ構造
+JSONパス	型	値の例	コード内での用途
+features	JSONArray	—	陸地ポリゴンの配列
+features[i].geometry.type	String	"Polygon" / "MultiPolygon"	ジオメトリ種別で処理を分岐
+features[i].geometry.coordinates	JSONArray	—	ポリゴン座標配列（ネスト構造）
+各座標[0]	float	139.5	経度 → 画面X座標に変換して頂点描画
+各座標[1]	float	35.7	緯度 → 画面Y座標に変換して頂点描画
+features[i].properties	JSONObject	—	プロパティ情報 — 未使用
+
+処理フロー — 初期化フェーズ（setup）
+ステップ	関数	処理内容	備考
+1	setup()	ウィンドウ生成（1000×600px）	—
+2	setup()	各ArrayList初期化（quakes, ripples, cracks, particles, flashes）	エフェクト管理用
+3	loadWorldMap()	Natural Earth GeoJSONを取得	GitHub上の静的ファイル
+4	loadWorldMap()	features配列をループし、geometry.typeで分岐	Polygon / MultiPolygon
+5	addRing()	各ポリゴンの座標を float[] に変換し worldPolygons に格納	経度・緯度のペア配列
+6	fetchYear()	USGS APIへの問い合わせを別スレッドで開始	thread("loadData")で非同期実行
+
+処理フロー — データ取得フェーズ（loadData）※別スレッド
+ステップ	関数	処理内容	備考
+1	loadData()	USGS APIにHTTPリクエスト送信	パラメータ: 年・M4以上・最大300件
+2	loadData()	レスポンスJSONをパース	loadJSONObject(url)
+3	loadData()	features配列をループ	各地震イベントを処理
+4	loadData()	properties から mag, place を取得	マグニチュード・場所名
+5	loadData()	geometry.coordinates から lon, lat を取得	経度・緯度
+6	loadData()	lon/lat → 画面座標(sx, sy)に変換	map()でマッピング
+7	loadData()	mag → 内部値(1-8)に変換	map(mag, 4, 9, 1, 8)
+8	loadData()	Quakeオブジェクトを生成し quakes に追加	—
+9	loadData()	pendingQuakes にコピーし自動再生を開始	autoPlaying = true
+
+処理フロー — 描画ループ（draw）※毎フレーム実行
+ステップ	関数	処理内容	備考
+1	draw()	画面揺れ処理（shakeAmount > 0 の場合）	translate()でオフセット、毎フレーム減衰
+2	draw()	背景塗りつぶし（暗色）	background(15, 15, 20)
+3	drawWorldGrid()	経緯線グリッドを描画	30度間隔
+4	drawWorldGrid()	worldPolygonsを順にbeginShape/endShapeで描画	世界地図の輪郭
+5	draw()	Flash → Crack → Ripple → Particle の順に更新・描画	終了したエフェクトはリストから除去
+6	draw()	全Quakeの更新・描画	tremor減衰、ホバー時ツールチップ表示
+7	draw()	自動再生処理	タイマーで順次triggerQuake()を呼び出し
+8	drawUI()	ヘッダー（ステータス・年表示・操作説明）描画	—
+9	drawUI()	自動再生中は進捗バーを描画	autoPlayIndex / 全件数
+
+処理フロー — エフェクト発生（triggerQuake）
+ステップ	関数	処理内容	発動条件
+1	triggerQuake()	画面揺れ量を設定	全地震（強度に比例）
+2	triggerQuake()	Quakeオブジェクトのtremor・highlightを設定	全地震
+3	triggerQuake()	Ripple（波紋）を複数生成	全地震（2〜7個）
+4	triggerQuake()	Crack（亀裂）を複数生成	内部値4以上（≒M6+）
+5	triggerQuake()	Particle（破片）を複数生成	全地震（3〜40個）
+6	triggerQuake()	Flash（閃光）を生成	内部値3以上（≒M5+）
+
+処理フロー — ユーザー操作
+入力	関数	処理内容
+← キー	keyPressed()	currentYear を -1 → エフェクトクリア → fetchYear() で前年データ取得
+→ キー	keyPressed()	currentYear を +1 → エフェクトクリア → fetchYear() で翌年データ取得
+SPACE キー	keyPressed()	エフェクトクリア → 現在の quakes を pendingQuakes にコピー → 自動再生開始
+マウスクリック	mousePressed()	クリック位置のQuakeを判定 → triggerQuake() でエフェクト発生
+マウスホバー	Quake.display()	震源との距離判定 → マグニチュード・場所名のツールチップ表示
