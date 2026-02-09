@@ -48,6 +48,7 @@ void setup() {
   fetchYear(currentYear);
 }
 
+// --- 地震の色を決定 ---
 color quakeColor(int value) {
   float t = constrain(map(value, 1, 8, 0, 1), 0, 1);
   if (t < 0.5) {
@@ -59,7 +60,7 @@ color quakeColor(int value) {
   }
 }
 
-// --- USGS API データ取得 ---
+// --- USGS API データ取得関連 ---
 void fetchYear(int year) {
   statusMsg = year + "年 読み込み中...";
   loading = true;
@@ -84,13 +85,18 @@ void loadData() {
       float mag = props.getFloat("mag");
       String place = props.getString("place");
       long timeMs = props.getLong("time");
-      java.util.Calendar cal = java.util.Calendar.getInstance();
+      java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
       cal.setTimeInMillis(timeMs);
-      int month = cal.get(java.util.Calendar.MONTH) + 1; // 0-based → 1-based
+      int month = cal.get(java.util.Calendar.MONTH) + 1;
+      String dateStr = cal.get(java.util.Calendar.YEAR)
+        + "/" + nf(month, 2)
+        + "/" + nf(cal.get(java.util.Calendar.DAY_OF_MONTH), 2)
+        + " " + nf(cal.get(java.util.Calendar.HOUR_OF_DAY), 2)
+        + ":" + nf(cal.get(java.util.Calendar.MINUTE), 2) + " UTC";
       float sx = gx(lon);
       float sy = gy(lat);
       int value = constrain((int)map(mag, 5, 9, 1, 8), 1, 8);
-      tempQuakes.add(new Quake(sx, sy, value, mag, place, month));
+      tempQuakes.add(new Quake(sx, sy, value, mag, place, month, dateStr));
     }
     loadedQuakes = tempQuakes;
     loadedStatusMsg = currentYear + "年 : " + tempQuakes.size() + "件の地震 (M5以上)";
@@ -101,6 +107,7 @@ void loadData() {
   loading = false;
 }
 
+// --- UI描画 ---
 void draw() {
   // バックグラウンドスレッドからデータを受け取る
   if (loadedQuakes != null) {
@@ -154,7 +161,7 @@ void draw() {
     q.display();
   }
 
-  // 自動再生の実行処理（millis()ベースでフレーム落ちに影響されない）
+  // 自動再生の実行処理（millis()ベースでフレーム落ちに影響されないようにしている）
   if (autoPlaying && autoPlayIndex < pendingQuakes.size()) {
     int now = millis();
     while (autoPlayIndex < pendingQuakes.size() && now - autoPlayLastMs >= autoPlayIntervalMs) {
@@ -388,18 +395,20 @@ class Quake {
   float mag;
   String place;
   int month; // 1-12
+  String dateStr; // "2011/03/11 14:46"
   float radius;
   float tremor = 0;
   float tremorDecay = 0.9;
   float highlight = 0;
 
-  Quake(float x, float y, int value, float mag, String place, int month) {
+  Quake(float x, float y, int value, float mag, String place, int month, String dateStr) {
     this.x = x;
     this.y = y;
     this.value = value;
     this.mag = mag;
     this.place = place;
     this.month = month;
+    this.dateStr = dateStr;
     this.radius = map(value, 1, 8, 4, 14);
   }
 
@@ -423,14 +432,24 @@ class Quake {
 
     // ホバーでツールチップ
     if (dist(mouseX, mouseY, x, y) < radius + 8) {
-      String tip = "M" + nf(mag, 1, 1) + " " + place;
-      fill(0, 200);
-      noStroke();
-      rect(mouseX + 10, mouseY - 28, textWidth(tip) + 16, 24, 4);
-      fill(255);
-      textAlign(LEFT, CENTER);
       textSize(12);
-      text(tip, mouseX + 18, mouseY - 16);
+      String line1 = dateStr + "  M" + nf(mag, 1, 1);
+      String line2 = place;
+      float tipW = max(textWidth(line1), textWidth(line2)) + 16;
+      float tipH = 38;
+      float tipX = mouseX + 10;
+      float tipY = mouseY - tipH - 4;
+      // 画面外にはみ出さないよう調整
+      if (tipX + tipW > width) tipX = mouseX - tipW - 10;
+      if (tipY < 0) tipY = mouseY + 16;
+      fill(0, 210);
+      noStroke();
+      rect(tipX, tipY, tipW, tipH, 4);
+      fill(255);
+      textAlign(LEFT, TOP);
+      text(line1, tipX + 8, tipY + 4);
+      fill(180);
+      text(line2, tipX + 8, tipY + 20);
     }
 
     // ハイライト
@@ -447,7 +466,7 @@ class Quake {
   }
 }
 
-// ============================================================
+// --- 波紋エフェクト ---
 class Ripple {
   float x, y;
   int value;
@@ -501,7 +520,7 @@ class Ripple {
   }
 }
 
-// ============================================================
+// --- バリバリエフェクト ---
 class Crack {
   float x, y;
   int value;
@@ -559,7 +578,7 @@ class Crack {
   }
 }
 
-// ============================================================
+// --- 粒々エフェクト ---
 class Particle {
   float x, y, vx, vy, life, decay, sz;
   color c;
@@ -600,7 +619,7 @@ class Particle {
   }
 }
 
-// ============================================================
+// --- 光エフェクト ---
 class Flash {
   float x, y, life, maxSize;
   int value;
